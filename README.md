@@ -12,13 +12,6 @@
 - ✅ **Fallback Models** - Default models when API is unavailable
 - ✅ **Combo Model Capability Enrichment** - Automatically calculates lowest common capabilities for OmniRoute combo models
 
-- ✅ **Simple `/connect` Command** - No manual configuration needed
-- ✅ **API Key Authentication** - Simple and secure API key-based auth
-- ✅ **Dynamic Model Fetching** - Automatically fetches available models from `/v1/models` endpoint
-- ✅ **Provider Auto-Registration** - Registers an `omniroute` provider via plugin hooks
-- ✅ **Model Caching** - Intelligent caching with TTL for better performance
-- ✅ **Fallback Models** - Default models when API is unavailable
-
 ## Installation
 
 ## Quick Start
