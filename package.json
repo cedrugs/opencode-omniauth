@@ -1,5 +1,5 @@
 {
-	"name": "opencode-omniroute-auth",
+	"name": "@cedrugs/opencode-omniauth",
 	"version": "1.2.0",
 	"description": "OpenCode authentication plugin for OmniRoute API with /connect command and dynamic model fetching",
 	"type": "module",
