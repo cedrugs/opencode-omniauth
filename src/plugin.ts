@@ -18,7 +18,7 @@ import {
 import { fetchModels } from './models.js';
 
 const OMNIROUTE_PROVIDER_NAME = 'OmniRoute';
-const OMNIROUTE_CHAT_PROVIDER_NPM = '@ai-sdk/openai';
+const OMNIROUTE_CHAT_PROVIDER_NPM = '@ai-sdk/openai-compatible';
 const OMNIROUTE_RESPONSES_PROVIDER_NPM = '@ai-sdk/openai';
 const OMNIROUTE_PROVIDER_ENV = ['OMNIROUTE_API_KEY'];
 
@@ -714,13 +714,17 @@ function sanitizeToolSchemas(payload: Record<string, unknown>): boolean {
 		return false;
 	}
 
-	const clonedPayload = payload;
-	const changed = sanitizeToolSchemaContainer(clonedPayload);
+	const model = payload.model;
+	if (typeof model !== 'string' || !model.toLowerCase().includes('gemini')) {
+		return false;
+	}
+
+	const changed = sanitizeToolSchemaContainer(payload);
 	if (!changed) {
 		return false;
 	}
 
-	log.info('[OmniRoute] Sanitized tool schema keywords');
+	log.info('[OmniRoute] Sanitized Gemini tool schema keywords');
 	return true;
 }
 

@@ -165,7 +165,7 @@ test('loader injects auth headers only for OmniRoute URLs', async () => {
 	assert.equal(externalHeaders.get('Authorization'), null);
 });
 
-test('tool schema sanitization applies to all models', async () => {
+test('tool schema sanitization applies to gemini models', async () => {
 	const plugin = await OmniRouteAuthPlugin({});
 	let forwardedBody;
 
@@ -210,7 +210,7 @@ test('tool schema sanitization applies to all models', async () => {
 	await interceptedFetch('http://localhost:20128/v1/chat/completions', {
 		method: 'POST',
 		body: JSON.stringify({
-			model: 'free-stack',
+			model: 'gemini-2.5-pro',
 			messages: [],
 			tools: [
 				{
@@ -232,6 +232,70 @@ test('tool schema sanitization applies to all models', async () => {
 	assert.equal(forwardedBody.tools[0].function.parameters.$schema, undefined);
 	assert.equal(forwardedBody.tools[0].function.parameters.additionalProperties, undefined);
 	assert.equal(forwardedBody.tools[0].function.parameters.type, 'object');
+});
+
+test('non-gemini payload keeps original tool schema fields', async () => {
+	const plugin = await OmniRouteAuthPlugin({});
+	let forwardedBody;
+
+	global.fetch = async (input, init) => {
+		const url = input instanceof Request ? input.url : String(input);
+		if (url.endsWith('/v1/models')) {
+			return new Response(JSON.stringify(createModelsResponse()), {
+				status: 200,
+				headers: { 'Content-Type': 'application/json' },
+			});
+		}
+
+		if (url.includes('models.dev') || url.includes('/api/combos')) {
+			return new Response(
+				JSON.stringify(url.includes('models.dev') ? {} : { combos: [] }),
+				{ status: 200, headers: { 'Content-Type': 'application/json' } },
+			);
+		}
+
+		forwardedBody = typeof init?.body === 'string' ? JSON.parse(init.body) : null;
+		return new Response(JSON.stringify({ ok: true }), {
+			status: 200,
+			headers: { 'Content-Type': 'application/json' },
+		});
+	};
+
+	const provider = {
+		options: { baseURL: 'http://localhost:20128/v1', apiMode: 'chat' },
+		models: {},
+	};
+
+	const options = await plugin.auth.loader(async () => ({ type: 'api', key: 'secret-key' }), provider);
+	const interceptedFetch = options.fetch;
+
+	await interceptedFetch('http://localhost:20128/v1/chat/completions', {
+		method: 'POST',
+		body: JSON.stringify({
+			model: 'gpt-4.1-mini',
+			messages: [],
+			tools: [
+				{
+					type: 'function',
+					function: {
+						name: 'lookup',
+						parameters: {
+							type: 'object',
+							$schema: 'https://json-schema.org/draft/2020-12/schema',
+							additionalProperties: false,
+						},
+					},
+				},
+			],
+		}),
+	});
+
+	assert.ok(forwardedBody);
+	assert.equal(
+		forwardedBody.tools[0].function.parameters.$schema,
+		'https://json-schema.org/draft/2020-12/schema',
+	);
+	assert.equal(forwardedBody.tools[0].function.parameters.additionalProperties, false);
 });
 
 test('gemini tool schema with $ref definitions resolved inline', async () => {
