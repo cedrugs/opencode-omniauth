@@ -1,12 +1,36 @@
+import { appendFileSync, mkdirSync } from 'node:fs';
+import { join } from 'node:path';
+import { homedir } from 'node:os';
+
 const _global = globalThis as Record<string, unknown>;
 const _process = _global.process as Record<string, unknown> | undefined;
 const _env = _process?.env as Record<string, string> | undefined;
 const DEBUG_ENABLED = !!(_env?.OMNIROUTE_DEBUG);
 
+const LOG_DIR = join(homedir(), '.cache', 'opencode');
+const LOG_FILE = join(LOG_DIR, 'omniauth.log');
+
+function writeToLogFile(level: string, args: unknown[]): void {
+	try {
+		mkdirSync(LOG_DIR, { recursive: true });
+		const timestamp = new Date().toISOString();
+		const message = args.map((a) => (typeof a === 'string' ? a : JSON.stringify(a))).join(' ');
+		appendFileSync(LOG_FILE, `[${timestamp}] [${level}] ${message}\n`);
+	} catch {
+		// silently ignore file write errors
+	}
+}
+
 export const log = {
-	info: DEBUG_ENABLED ? console.log.bind(console) : () => {},
-	warn: DEBUG_ENABLED ? console.warn.bind(console) : () => {},
-	error: DEBUG_ENABLED ? console.error.bind(console) : () => {},
+	info: DEBUG_ENABLED
+		? (...args: unknown[]) => { console.log(...args); writeToLogFile('INFO', args); }
+		: (...args: unknown[]) => { writeToLogFile('INFO', args); },
+	warn: DEBUG_ENABLED
+		? (...args: unknown[]) => { console.warn(...args); writeToLogFile('WARN', args); }
+		: (...args: unknown[]) => { writeToLogFile('WARN', args); },
+	error: DEBUG_ENABLED
+		? (...args: unknown[]) => { console.error(...args); writeToLogFile('ERROR', args); }
+		: (...args: unknown[]) => { writeToLogFile('ERROR', args); },
 };
 
 export const OMNIROUTE_PROVIDER_ID = 'omniroute';

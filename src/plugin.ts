@@ -564,8 +564,9 @@ function createFetchInterceptor(
 		headers.set('Content-Type', 'application/json');
 
 		if (url.includes('/chat/completions') || url.includes('/responses')) {
-			const initiator = await detectInitiator(input, init);
+			const initiator = await detectInitiator(input, init, headers);
 			headers.set('x-initiator', initiator);
+			log.info(`[OmniRoute] x-initiator set to "${initiator}" for ${url}`);
 		}
 
 		const transformedBody = await transformRequestBody(input, init, url);
@@ -583,23 +584,45 @@ function createFetchInterceptor(
 async function detectInitiator(
 	input: RequestInfo | URL,
 	init: RequestInit | undefined,
+	headers: Headers,
 ): Promise<'agent' | 'user'> {
 	try {
+		if (headers.get('x-parent-session-id')) {
+			log.info('[OmniRoute] detectInitiator: subagent session detected via x-parent-session-id → "agent"');
+			return 'agent';
+		}
+
 		const rawBody = await getRawJsonBody(input, init);
-		if (!rawBody) return 'user';
+		if (!rawBody) {
+			log.info('[OmniRoute] detectInitiator: no body, defaulting to "user"');
+			return 'user';
+		}
 
 		const payload: unknown = JSON.parse(rawBody);
 		if (!isRecord(payload)) return 'user';
+
+		const systemClassification = classifySystemRequest(payload);
+		if (systemClassification) {
+			log.info(`[OmniRoute] detectInitiator: ${systemClassification} request detected → "agent"`);
+			return 'agent';
+		}
 
 		const items = Array.isArray(payload.messages)
 			? payload.messages
 			: Array.isArray(payload.input)
 				? payload.input
 				: null;
-		if (!items || items.length === 0) return 'user';
+		if (!items || items.length === 0) {
+			log.info('[OmniRoute] detectInitiator: no messages/input array, defaulting to "user"');
+			return 'user';
+		}
 
 		const last = items[items.length - 1];
 		if (!isRecord(last)) return 'user';
+
+		const lastRole = last.role as string | undefined;
+		const lastType = last.type as string | undefined;
+		log.info(`[OmniRoute] detectInitiator: last item role="${lastRole}" type="${lastType}"`);
 
 		if (last.role === 'user') {
 			const content = last.content;
@@ -616,6 +639,93 @@ async function detectInitiator(
 	} catch {
 		return 'user';
 	}
+}
+
+const TITLE_SYSTEM_MARKER = 'you are a title generator';
+const COMPACTION_SYSTEM_MARKER = 'tasked with summarizing conversations';
+const COMPACTION_USER_MARKER = 'provide a detailed prompt for continuing our conversation above';
+const TITLE_USER_MARKER = 'generate a title for this conversation';
+
+function classifySystemRequest(payload: Record<string, unknown>): string | null {
+	const hasTools = Array.isArray(payload.tools) && payload.tools.length > 0;
+
+	const systemPrompt = extractSystemPrompt(payload);
+	const systemLower = systemPrompt?.toLowerCase() ?? '';
+
+	if (systemLower.includes(TITLE_SYSTEM_MARKER)) {
+		return 'title generation (system prompt match)';
+	}
+
+	if (systemLower.includes(COMPACTION_SYSTEM_MARKER)) {
+		return 'compaction (system prompt match)';
+	}
+
+	if (!hasTools) {
+		const lastUserContent = extractLastUserContent(payload);
+		if (lastUserContent) {
+			const contentLower = lastUserContent.toLowerCase();
+			if (contentLower.includes(TITLE_USER_MARKER)) {
+				return 'title generation (user message match)';
+			}
+			if (contentLower.includes(COMPACTION_USER_MARKER)) {
+				return 'compaction (user message match)';
+			}
+		}
+	}
+
+	return null;
+}
+
+function extractSystemPrompt(payload: Record<string, unknown>): string | null {
+	if (typeof payload.instructions === 'string') {
+		return payload.instructions;
+	}
+
+	const items = Array.isArray(payload.messages)
+		? payload.messages
+		: Array.isArray(payload.input)
+			? payload.input
+			: null;
+	if (!items) return null;
+
+	for (const item of items) {
+		if (!isRecord(item)) continue;
+		if (item.role === 'system') {
+			if (typeof item.content === 'string') return item.content;
+			if (Array.isArray(item.content)) {
+				const textParts = item.content
+					.filter((p) => isRecord(p) && p.type === 'text' && typeof p.text === 'string')
+					.map((p) => (p as Record<string, unknown>).text as string);
+				if (textParts.length > 0) return textParts.join('\n');
+			}
+		}
+	}
+
+	return null;
+}
+
+function extractLastUserContent(payload: Record<string, unknown>): string | null {
+	const items = Array.isArray(payload.messages)
+		? payload.messages
+		: Array.isArray(payload.input)
+			? payload.input
+			: null;
+	if (!items) return null;
+
+	for (let i = items.length - 1; i >= 0; i--) {
+		const item = items[i];
+		if (!isRecord(item) || item.role !== 'user') continue;
+
+		if (typeof item.content === 'string') return item.content;
+		if (Array.isArray(item.content)) {
+			const textParts = item.content
+				.filter((p) => isRecord(p) && p.type === 'text' && typeof p.text === 'string')
+				.map((p) => (p as Record<string, unknown>).text as string);
+			if (textParts.length > 0) return textParts.join('\n');
+		}
+	}
+
+	return null;
 }
 
 async function transformRequestBody(

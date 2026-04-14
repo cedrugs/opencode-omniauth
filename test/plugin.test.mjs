@@ -738,3 +738,207 @@ test('reasoningEffort is normalized to reasoning.effort object', async () => {
 	assert.equal(forwardedBody.reasoningEffort, undefined);
 	assert.deepStrictEqual(forwardedBody.reasoning, { effort: 'high' });
 });
+
+test('x-initiator detects subagent via x-parent-session-id header', async () => {
+	const plugin = await OmniRouteAuthPlugin({});
+	let capturedHeaders;
+
+	global.fetch = async (input, init) => {
+		const url = input instanceof Request ? input.url : String(input);
+		if (url.endsWith('/v1/models')) {
+			return new Response(JSON.stringify(createModelsResponse()), {
+				status: 200,
+				headers: { 'Content-Type': 'application/json' },
+			});
+		}
+
+		if (url.includes('models.dev') || url.includes('/api/combos')) {
+			return new Response(
+				JSON.stringify(url.includes('models.dev') ? {} : { combos: [] }),
+				{ status: 200, headers: { 'Content-Type': 'application/json' } },
+			);
+		}
+
+		capturedHeaders = new Headers(init?.headers);
+		return new Response(JSON.stringify({ ok: true }), {
+			status: 200,
+			headers: { 'Content-Type': 'application/json' },
+		});
+	};
+
+	const provider = {
+		options: { baseURL: 'http://localhost:20128/v1', apiMode: 'chat' },
+		models: {},
+	};
+
+	const options = await plugin.auth.loader(async () => ({ type: 'api', key: 'secret-key' }), provider);
+	const interceptedFetch = options.fetch;
+
+	await interceptedFetch('http://localhost:20128/v1/chat/completions', {
+		method: 'POST',
+		headers: { 'x-parent-session-id': 'ses_abc123' },
+		body: JSON.stringify({
+			model: 'claude-opus-4',
+			messages: [
+				{ role: 'user', content: 'Explore the codebase and find all API endpoints' },
+			],
+		}),
+	});
+
+	assert.ok(capturedHeaders);
+	assert.equal(capturedHeaders.get('x-initiator'), 'agent');
+});
+
+test('x-initiator detects title generation via system prompt', async () => {
+	const plugin = await OmniRouteAuthPlugin({});
+	let capturedHeaders;
+
+	global.fetch = async (input, init) => {
+		const url = input instanceof Request ? input.url : String(input);
+		if (url.endsWith('/v1/models')) {
+			return new Response(JSON.stringify(createModelsResponse()), {
+				status: 200,
+				headers: { 'Content-Type': 'application/json' },
+			});
+		}
+
+		if (url.includes('models.dev') || url.includes('/api/combos')) {
+			return new Response(
+				JSON.stringify(url.includes('models.dev') ? {} : { combos: [] }),
+				{ status: 200, headers: { 'Content-Type': 'application/json' } },
+			);
+		}
+
+		capturedHeaders = new Headers(init?.headers);
+		return new Response(JSON.stringify({ ok: true }), {
+			status: 200,
+			headers: { 'Content-Type': 'application/json' },
+		});
+	};
+
+	const provider = {
+		options: { baseURL: 'http://localhost:20128/v1', apiMode: 'chat' },
+		models: {},
+	};
+
+	const options = await plugin.auth.loader(async () => ({ type: 'api', key: 'secret-key' }), provider);
+	const interceptedFetch = options.fetch;
+
+	await interceptedFetch('http://localhost:20128/v1/chat/completions', {
+		method: 'POST',
+		body: JSON.stringify({
+			model: 'claude-opus-4',
+			messages: [
+				{ role: 'system', content: 'You are a title generator. You output ONLY a thread title. Nothing else.' },
+				{ role: 'user', content: 'Generate a title for this conversation:\n' },
+				{ role: 'user', content: 'Help me refactor the auth module' },
+			],
+		}),
+	});
+
+	assert.ok(capturedHeaders);
+	assert.equal(capturedHeaders.get('x-initiator'), 'agent');
+});
+
+test('x-initiator detects compaction via system prompt', async () => {
+	const plugin = await OmniRouteAuthPlugin({});
+	let capturedHeaders;
+
+	global.fetch = async (input, init) => {
+		const url = input instanceof Request ? input.url : String(input);
+		if (url.endsWith('/v1/models')) {
+			return new Response(JSON.stringify(createModelsResponse()), {
+				status: 200,
+				headers: { 'Content-Type': 'application/json' },
+			});
+		}
+
+		if (url.includes('models.dev') || url.includes('/api/combos')) {
+			return new Response(
+				JSON.stringify(url.includes('models.dev') ? {} : { combos: [] }),
+				{ status: 200, headers: { 'Content-Type': 'application/json' } },
+			);
+		}
+
+		capturedHeaders = new Headers(init?.headers);
+		return new Response(JSON.stringify({ ok: true }), {
+			status: 200,
+			headers: { 'Content-Type': 'application/json' },
+		});
+	};
+
+	const provider = {
+		options: { baseURL: 'http://localhost:20128/v1', apiMode: 'chat' },
+		models: {},
+	};
+
+	const options = await plugin.auth.loader(async () => ({ type: 'api', key: 'secret-key' }), provider);
+	const interceptedFetch = options.fetch;
+
+	await interceptedFetch('http://localhost:20128/v1/chat/completions', {
+		method: 'POST',
+		body: JSON.stringify({
+			model: 'claude-opus-4',
+			messages: [
+				{ role: 'system', content: 'You are a helpful AI assistant tasked with summarizing conversations.' },
+				{ role: 'user', content: 'Hello, help me with X' },
+				{ role: 'assistant', content: 'Sure, let me help.' },
+				{ role: 'user', content: 'Provide a detailed prompt for continuing our conversation above.\nFocus on information that would be helpful for continuing the conversation.' },
+			],
+		}),
+	});
+
+	assert.ok(capturedHeaders);
+	assert.equal(capturedHeaders.get('x-initiator'), 'agent');
+});
+
+test('x-initiator classifies normal user message as user', async () => {
+	const plugin = await OmniRouteAuthPlugin({});
+	let capturedHeaders;
+
+	global.fetch = async (input, init) => {
+		const url = input instanceof Request ? input.url : String(input);
+		if (url.endsWith('/v1/models')) {
+			return new Response(JSON.stringify(createModelsResponse()), {
+				status: 200,
+				headers: { 'Content-Type': 'application/json' },
+			});
+		}
+
+		if (url.includes('models.dev') || url.includes('/api/combos')) {
+			return new Response(
+				JSON.stringify(url.includes('models.dev') ? {} : { combos: [] }),
+				{ status: 200, headers: { 'Content-Type': 'application/json' } },
+			);
+		}
+
+		capturedHeaders = new Headers(init?.headers);
+		return new Response(JSON.stringify({ ok: true }), {
+			status: 200,
+			headers: { 'Content-Type': 'application/json' },
+		});
+	};
+
+	const provider = {
+		options: { baseURL: 'http://localhost:20128/v1', apiMode: 'chat' },
+		models: {},
+	};
+
+	const options = await plugin.auth.loader(async () => ({ type: 'api', key: 'secret-key' }), provider);
+	const interceptedFetch = options.fetch;
+
+	await interceptedFetch('http://localhost:20128/v1/chat/completions', {
+		method: 'POST',
+		body: JSON.stringify({
+			model: 'claude-opus-4',
+			messages: [
+				{ role: 'system', content: 'You are a helpful coding assistant.' },
+				{ role: 'user', content: 'Help me refactor the auth module' },
+			],
+			tools: [{ type: 'function', function: { name: 'read_file', parameters: { type: 'object' } } }],
+		}),
+	});
+
+	assert.ok(capturedHeaders);
+	assert.equal(capturedHeaders.get('x-initiator'), 'user');
+});
