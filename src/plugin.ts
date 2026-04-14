@@ -563,6 +563,11 @@ function createFetchInterceptor(
 		headers.set('Authorization', `Bearer ${config.apiKey}`);
 		headers.set('Content-Type', 'application/json');
 
+		if (url.includes('/chat/completions') || url.includes('/responses')) {
+			const initiator = await detectInitiator(input, init);
+			headers.set('x-initiator', initiator);
+		}
+
 		const transformedBody = await transformRequestBody(input, init, url);
 
 		const modifiedInit: RequestInit = {
@@ -573,6 +578,44 @@ function createFetchInterceptor(
 
 		return fetch(input, modifiedInit);
 	};
+}
+
+async function detectInitiator(
+	input: RequestInfo | URL,
+	init: RequestInit | undefined,
+): Promise<'agent' | 'user'> {
+	try {
+		const rawBody = await getRawJsonBody(input, init);
+		if (!rawBody) return 'user';
+
+		const payload: unknown = JSON.parse(rawBody);
+		if (!isRecord(payload)) return 'user';
+
+		const items = Array.isArray(payload.messages)
+			? payload.messages
+			: Array.isArray(payload.input)
+				? payload.input
+				: null;
+		if (!items || items.length === 0) return 'user';
+
+		const last = items[items.length - 1];
+		if (!isRecord(last)) return 'user';
+
+		if (last.role === 'user') {
+			const content = last.content;
+			if (Array.isArray(content)) {
+				const hasNonToolResult = content.some(
+					(part) => isRecord(part) && part.type !== 'tool_result',
+				);
+				return hasNonToolResult ? 'user' : 'agent';
+			}
+			return 'user';
+		}
+
+		return 'agent';
+	} catch {
+		return 'user';
+	}
 }
 
 async function transformRequestBody(
